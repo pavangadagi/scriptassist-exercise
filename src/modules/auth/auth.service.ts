@@ -15,34 +15,33 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    const user = await this.usersService.findByEmail(email);
-    
-    if (!user) {
-      throw new UnauthorizedException('Invalid email');
+    try {
+      const user = await this.usersService.findByEmail(email);
+      
+      // Use generic error message to not show if email exist or not
+      if (!user || !(await bcrypt.compare(password, user.password))) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const token = this.generateToken(user.id);
+
+      return {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        },
+      };
+    } catch (error) {
+      // If it's already an UnauthorizedException, rethrow it
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      // For any other error, throw generic message to avoid information leakage
+      throw new UnauthorizedException('Invalid credentials');
     }
-
-    const passwordValid = await bcrypt.compare(password, user.password);
-    
-    if (!passwordValid) {
-      throw new UnauthorizedException('Invalid password');
-    }
-    const token = this.generateToken(user.id);
-
-
-    // const payload = { 
-    //   sub: user.id, 
-    //   email: user.email, 
-    //   role: user.role
-    // };
-
-    return {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
-    };
   }
 
   async register(registerDto: RegisterDto) {
@@ -83,6 +82,19 @@ export class AuthService {
   }
 
   async validateUserRoles(userId: string, requiredRoles: string[]): Promise<boolean> {
-    return true;
+    try {
+      const user = await this.usersService.findOne(userId);
+      
+      if (!user) {
+        return false;
+      }
+      
+      // Check if user's role is in the required roles array
+      return requiredRoles.includes(user.role);
+    } catch (error: any) {
+      // Log the error for monitoring but don't expose details
+      console.error('Error validating user roles:', error);
+      return false;
+    }
   }
 } 
