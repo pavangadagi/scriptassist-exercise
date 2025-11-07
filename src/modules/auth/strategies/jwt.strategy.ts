@@ -18,17 +18,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    const user = await this.usersService.findOne(payload.sub);
+    // Truly stateless: Trust JWT payload completely, NO DB call
+    // TokenVersion is checked only during refresh (in auth.service.ts)
+    // This gives us ~1ms validation time
     
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
+    // Trade-off:
+    // - Revoked tokens remain valid until they expire (15 min max)
+    // - But we get excellent performance and scalability
+    // - For immediate revocation, user must wait until token expires or refresh
     
     return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      role: payload.role,
     };
   }
 } 

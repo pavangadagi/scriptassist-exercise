@@ -53,4 +53,14 @@ export class UsersService {
     const user = await this.findOne(id);
     await this.usersRepository.remove(user);
   }
+
+  async updateRefreshToken(userId: string, refreshToken: string | null): Promise<void> {
+    await this.usersRepository.update(userId, { 
+      refreshToken: refreshToken ?? undefined 
+    });
+  }
+
+  async incrementTokenVersion(userId: string): Promise<void> {
+    await this.usersRepository.increment({ id: userId }, 'tokenVersion', 1);
+  }
 } 

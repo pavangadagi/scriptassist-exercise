@@ -20,6 +20,13 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
+  @Column({ name: 'token_version', default: 0 })
+  tokenVersion: number;
+
+  @Column({ name: 'refresh_token', nullable: true })
+  @Exclude({ toPlainOnly: true })
+  refreshToken: string;
+
   @OneToMany(() => Task, (task) => task.user)
   tasks: Task[];
 
