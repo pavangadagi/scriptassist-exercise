@@ -26,15 +26,17 @@ export class AuthService {
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid password');
     }
+    const token = this.generateToken(user.id);
 
-    const payload = { 
-      sub: user.id, 
-      email: user.email, 
-      role: user.role
-    };
+
+    // const payload = { 
+    //   sub: user.id, 
+    //   email: user.email, 
+    //   role: user.role
+    // };
 
     return {
-      access_token: this.jwtService.sign(payload),
+      token,
       user: {
         id: user.id,
         email: user.email,
