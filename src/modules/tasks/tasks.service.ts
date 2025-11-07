@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Task } from './entities/task.entity';
@@ -20,16 +20,45 @@ export class TasksService {
   async create(createTaskDto: CreateTaskDto): Promise<Task> {
     // Inefficient implementation: creates the task but doesn't use a single transaction
     // for creating and adding to queue, potential for inconsistent state
-    const task = this.tasksRepository.create(createTaskDto);
-    const savedTask = await this.tasksRepository.save(task);
+    try {
+      return await this.tasksRepository.manager.transaction(async manager => {
+        // Create and save task
+        const task = manager.create(Task, createTaskDto);
+        const savedTask = await manager.save(task);
 
-    // Add to queue without waiting for confirmation or handling errors
-    this.taskQueue.add('task-status-update', {
-      taskId: savedTask.id,
-      status: savedTask.status,
-    });
+        // Add to queue - failure will rollback the task creation
+        await this.taskQueue.add('task-status-update', {
+          taskId: savedTask.id,
+          status: savedTask.status,
+        });
 
-    return savedTask;
+        return savedTask;
+      });
+    } catch (error: any) {
+      // Handle specific error types
+      if (error.message.includes('queue')) {
+        throw new ServiceUnavailableException('Task processing service is currently unavailable');
+      }
+      
+      if (error.code === '23505') { // PostgreSQL unique violation
+        throw new ConflictException('A task with similar properties already exists');
+      }
+      
+      // Re-throw other errors
+      throw error;
+    }
+    
+    
+    // const task = this.tasksRepository.create(createTaskDto);
+    // const savedTask = await this.tasksRepository.save(task);
+
+    // // Add to queue without waiting for confirmation or handling errors
+    // this.taskQueue.add('task-status-update', {
+    //   taskId: savedTask.id,
+    //   status: savedTask.status,
+    // });
+
+    // return savedTask;
   }
 
   async findAll(): Promise<Task[]> {
