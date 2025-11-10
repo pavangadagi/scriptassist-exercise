@@ -14,6 +14,7 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ summary: 'Login with email and password' })
   login(@Body() loginDto: LoginDto) {
+    console.log("login")
     return this.authService.login(loginDto);
   }
 

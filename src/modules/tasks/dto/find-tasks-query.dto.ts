@@ -1,5 +1,5 @@
 import { IsOptional, IsEnum, IsInt, Min, Max, IsBoolean } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '../enums/task-status.enum';
 
@@ -28,9 +28,17 @@ export class FindTasksQueryDto {
   @Max(100)
   limit?: number;
 
-  @ApiPropertyOptional({ description: 'Include user relation', default: false })
+  @ApiPropertyOptional({ description: 'Include user relation', default: false, type: Boolean })
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    console.log('Transform - raw value:', value, 'type:', typeof value);
+    // Handle string values
+    if (typeof value === 'string') {
+      return value.toLowerCase() === 'true';
+    }
+    // Handle boolean values
+    return Boolean(value);
+  }, { toClassOnly: true })
   @IsBoolean()
   includeUser?: boolean;
 }

@@ -67,7 +67,7 @@ export class TasksService {
     const page = options?.page || 1;
     const limit = options?.limit || 10;
     const skip = (page - 1) * limit;
-
+    console.log("options: ", options)
     const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
     // Select only IDs if requested
@@ -76,7 +76,7 @@ export class TasksService {
     }
 
     // Optional user relation
-    if (options?.includeUser && !options?.idsOnly) {
+    if (options?.includeUser) {
       queryBuilder.leftJoinAndSelect('task.user', 'user');
     }
 
