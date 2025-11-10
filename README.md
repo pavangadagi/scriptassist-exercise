@@ -446,3 +446,87 @@ REDIS_PORT=6379
 - src/queues/task-processor/task-processor.module.ts - Single queue registration with shared config
 - src/queues/scheduled-tasks/scheduled-tasks.module.ts - Imports TaskProcessorModule instead of re-registering queue
 - src/queues/scheduled-tasks/overdue-tasks.service.ts - Proper pagination loop, removed redundant job options
+
+## Health Checks Implementation
+
+### Comprehensive Health Monitoring with NestJS Terminus
+
+Implemented production-ready health checks to monitor critical system components and dependencies.
+
+#### Core Components
+
+**1. Health Controller** (`src/modules/health/health.controller.ts`)
+- Comprehensive health check endpoint at `/health`
+- Monitors multiple system components simultaneously
+- Returns HTTP 200 when healthy, 503 when any check fails
+- Rate limiting skipped for monitoring tools
+- Swagger documentation with response examples
+
+**2. Redis Health Indicator** (`src/modules/health/indicators/redis.health.ts`)
+- Custom health indicator for Redis connectivity
+- Creates dedicated Redis connection for health checks
+- Uses lazy connection to avoid startup overhead
+- Proper cleanup on module destroy
+- Returns detailed status (up/down) with error messages
+
+**3. Health Module** (`src/modules/health/health.module.ts`)
+- Imports NestJS Terminus for standardized health checks
+- Registers custom Redis health indicator
+- Provides health controller endpoint
+
+#### Health Checks Performed
+
+1. **Database (PostgreSQL)**
+   - Checks TypeORM connection with ping
+   - Verifies database is accessible and responding
+
+2. **Redis**
+   - Verifies Redis connectivity via direct ping
+   - Independent connection (not coupled to queues)
+   - Proper error handling and reporting
+
+3. **Memory Heap**
+   - Monitors heap memory usage
+   - Threshold: 150MB
+   - Alerts if heap usage exceeds limit
+
+4. **Memory RSS (Resident Set Size)**
+   - Monitors total memory usage
+   - Threshold: 300MB
+   - Alerts if RSS exceeds limit
+
+#### Files Added/Modified
+
+- `src/modules/health/health.controller.ts` - Enhanced with Terminus health checks
+- `src/modules/health/health.module.ts` - Integrated Terminus module and ConfigModule
+- `src/modules/health/indicators/redis.health.ts` - Custom Redis health indicator with direct connection
+- `package.json` - Added @nestjs/terminus dependency
+
+#### Dependencies Added
+
+- `@nestjs/terminus` (^11.0.0) - NestJS health check framework
+
+#### Implementation Details
+
+**Redis Health Indicator:**
+- Creates independent Redis connection using ConfigService
+- Uses `lazyConnect: true` to avoid connecting until first health check
+- Implements `onModuleDestroy` lifecycle hook for proper cleanup
+- Not coupled to any specific queue or service
+- Direct ping to Redis for accurate health status
+
+**Health Controller:**
+- Uses NestJS Terminus `@HealthCheck()` decorator
+- Parallel execution of all health checks for fast response
+- Proper HTTP status codes (200 for healthy, 503 for unhealthy)
+- Detailed response with status for each component
+- Rate limiting skipped for monitoring tools
+
+#### Benefits
+
+- **Proactive Monitoring**: Detect issues before they impact users
+- **Automated Recovery**: Enable auto-restart/scaling based on health status
+- **Debugging**: Quickly identify which component is failing
+- **Standardized**: Uses industry-standard health check patterns
+- **Production-Ready**: Proper error handling and cleanup
+- **Independent**: Redis health check not coupled to application queues
