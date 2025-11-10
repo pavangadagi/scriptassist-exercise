@@ -20,6 +20,12 @@ Problem: register function was using generateToken but login function was not co
 
 Solution: Made both functions use generateAccessToken and generateRefreshToken consistently.
 
+### 4. JwtAuthGuard Not Enforcing Authentication
+
+Problem: TasksController had JwtAuthGuard applied but endpoints were accessible without authentication.
+
+Solution: The controller was using a local placeholder class `class JwtAuthGuard {}` instead of importing the actual guard from the auth module. Fixed by importing the real `JwtAuthGuard` from `src/modules/auth/guards/jwt-auth.guard.ts`.
+
 ## Architecture Decisions
 
 ### JWT Authentication Implementation
@@ -222,6 +228,11 @@ Benefits: Processes all overdue tasks, cleaner code, consistent retry behavior
 - src/modules/users/entities/user.entity.ts - Added tokenVersion and refreshToken fields
 - src/app.module.ts - Fixed jwtConfig loading
 - src/queues/scheduled-tasks/overdue-tasks.service.ts - Fixed dependency injection
+
+### Tasks Module - Controller Layer
+- src/modules/tasks/tasks.controller.ts - Fixed JWT authentication
+  - Replaced placeholder JwtAuthGuard class with actual import from auth module
+  - Now properly enforces JWT authentication on all task endpoints
 
 ### Tasks Module - Service Layer
 - src/modules/tasks/tasks.service.ts - Complete refactoring of all functions

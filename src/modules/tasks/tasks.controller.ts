@@ -9,10 +9,7 @@ import { TaskStatus } from './enums/task-status.enum';
 import { BatchAction } from './enums/batch-action.enum';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
-
-// This guard needs to be implemented or imported from the correct location
-// We're intentionally leaving it as a non-working placeholder
-class JwtAuthGuard {}
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('tasks')
 @Controller('tasks')
@@ -32,6 +29,9 @@ export class TasksController {
   @ApiOperation({ summary: 'Find all tasks with optional filtering and pagination' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Returns paginated tasks' })
   async findAll(@Query() query: FindTasksQueryDto) {
+    console.log('Query DTO:', query);
+    console.log('includeUser value:', query.includeUser);
+    console.log('includeUser type:', typeof query.includeUser);
     return this.tasksService.findAll(query);
   }
 
