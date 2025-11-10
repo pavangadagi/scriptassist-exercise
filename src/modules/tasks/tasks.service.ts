@@ -7,6 +7,8 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
+import { PaginatedResponse } from '../../types/pagination.interface';
+import { FindTasksOptions } from './interfaces/find-tasks-options.interface';
 
 @Injectable()
 export class TasksService {
@@ -18,8 +20,6 @@ export class TasksService {
   ) {}
 
   async create(createTaskDto: CreateTaskDto): Promise<Task> {
-    // Inefficient implementation: creates the task but doesn't use a single transaction
-    // for creating and adding to queue, potential for inconsistent state
     try {
       return await this.tasksRepository.manager.transaction(async manager => {
         // Create and save task
@@ -61,12 +61,46 @@ export class TasksService {
     // return savedTask;
   }
 
-  async findAll(): Promise<Task[]> {
-    // Inefficient implementation: retrieves all tasks without pagination
-    // and loads all relations, causing potential performance issues
-    return this.tasksRepository.find({
-      relations: ['user'],
-    });
+  async findAll(options?: FindTasksOptions): Promise<PaginatedResponse<Task>> {
+    const page = options?.page || 1;
+    const limit = options?.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.tasksRepository.createQueryBuilder('task');
+
+    // Optional user relation
+    if (options?.includeUser) {
+      queryBuilder.leftJoinAndSelect('task.user', 'user');
+    }
+
+    // Filtering
+    if (options?.status) {
+      queryBuilder.andWhere('task.status = :status', { status: options.status });
+    }
+
+    if (options?.priority) {
+      queryBuilder.andWhere('task.priority = :priority', { priority: options.priority });
+    }
+
+    if (options?.userId) {
+      queryBuilder.andWhere('task.userId = :userId', { userId: options.userId });
+    }
+
+    // Pagination
+    queryBuilder.skip(skip).take(limit);
+
+    // Execute query with count
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findOne(id: string): Promise<Task> {
