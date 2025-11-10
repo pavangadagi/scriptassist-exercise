@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { TasksService } from '../../modules/tasks/tasks.service';
+import { JobResult } from './interfaces/job-result.interface';
 
 @Injectable()
 @Processor('task-processing')
@@ -12,32 +13,44 @@ export class TaskProcessorService extends WorkerHost {
     super();
   }
 
-  // Inefficient implementation:
-  // - No proper job batching
-  // - No error handling strategy
-  // - No retries for failed jobs
-  // - No concurrency control
-  async process(job: Job): Promise<any> {
-    this.logger.debug(`Processing job ${job.id} of type ${job.name}`);
+  async process(job: Job): Promise<JobResult> {
+    const startTime = Date.now();
+    this.logger.log(`[Job ${job.id}] Processing job type: ${job.name}, Attempt: ${job.attemptsMade + 1}`);
     
     try {
+      let result;
+      
       switch (job.name) {
         case 'task-status-update':
-          return await this.handleStatusUpdate(job);
+          result = await this.handleStatusUpdate(job);
+          break;
         case 'overdue-tasks-notification':
-          return await this.handleOverdueTasks(job);
+          result = await this.handleOverdueTasks(job);
+          break;
         default:
-          this.logger.warn(`Unknown job type: ${job.name}`);
-          return { success: false, error: 'Unknown job type' };
+          this.logger.warn(`[Job ${job.id}] Unknown job type: ${job.name}`);
+          return { success: false, error: `Unknown job type: ${job.name}` };
       }
+      
+      const duration = Date.now() - startTime;
+      this.logger.log(`[Job ${job.id}] Completed successfully in ${duration}ms`);
+      
+      return result;
     } catch (error) {
-      // Basic error logging without proper handling or retries
-      this.logger.error(`Error processing job ${job.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error; // Simply rethrows the error without any retry strategy
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      this.logger.error(
+        `[Job ${job.id}] Failed after ${duration}ms: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      
+      // Throw error to trigger BullMQ retry mechanism
+      throw error;
     }
   }
 
-  private async handleStatusUpdate(job: Job) {
+  private async handleStatusUpdate(job: Job): Promise<JobResult> {
     const { taskId, status } = job.data;
     
     if (!taskId || !status) {
@@ -49,17 +62,22 @@ export class TaskProcessorService extends WorkerHost {
     
     return { 
       success: true,
-      taskId: task.id,
-      newStatus: task.status
+      data: {
+        taskId: task.id,
+        newStatus: task.status,
+      },
     };
   }
 
-  private async handleOverdueTasks(job: Job) {
+  private async handleOverdueTasks(job: Job): Promise<JobResult> {
     // Inefficient implementation with no batching or chunking for large datasets
     this.logger.debug('Processing overdue tasks notification');
     
     // The implementation is deliberately basic and inefficient
     // It should be improved with proper batching and error handling
-    return { success: true, message: 'Overdue tasks processed' };
+    return { 
+      success: true, 
+      data: { message: 'Overdue tasks processed' },
+    };
   }
 } 
