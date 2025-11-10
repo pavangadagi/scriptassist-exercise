@@ -7,8 +7,10 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
+import { BatchAction } from './enums/batch-action.enum';
 import { PaginatedResponse } from '../../types/pagination.interface';
 import { FindTasksOptions } from './interfaces/find-tasks-options.interface';
+import { TaskStatistics } from './interfaces/task-statistics.interface';
 
 @Injectable()
 export class TasksService {
@@ -171,7 +173,97 @@ export class TasksService {
     }
   }
 
+  async getStatistics(): Promise<TaskStatistics> {
+    // Use SQL aggregation for efficient statistics calculation
+    const statusStats = await this.tasksRepository
+      .createQueryBuilder('task')
+      .select('task.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('task.status')
+      .getRawMany<{ status: string; count: string }>();
 
+    const priorityStats = await this.tasksRepository
+      .createQueryBuilder('task')
+      .select('task.priority', 'priority')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('task.priority')
+      .getRawMany<{ priority: string; count: string }>();
 
+    // Get total count
+    const total = await this.tasksRepository.count();
 
+    // Transform results into a more usable format
+    const statistics: TaskStatistics = {
+      total,
+      byStatus: {
+        pending: 0,
+        in_progress: 0,
+        completed: 0,
+      },
+      byPriority: {
+        low: 0,
+        medium: 0,
+        high: 0,
+      },
+    };
+
+    // Map status counts
+    statusStats.forEach((stat) => {
+      const count = parseInt(stat.count, 10);
+      if (stat.status === TaskStatus.PENDING) statistics.byStatus.pending = count;
+      if (stat.status === TaskStatus.IN_PROGRESS) statistics.byStatus.in_progress = count;
+      if (stat.status === TaskStatus.COMPLETED) statistics.byStatus.completed = count;
+    });
+
+    // Map priority counts
+    priorityStats.forEach((stat) => {
+      const count = parseInt(stat.count, 10);
+      const priority = stat.priority.toLowerCase() as 'low' | 'medium' | 'high';
+      if (priority in statistics.byPriority) {
+        statistics.byPriority[priority] = count;
+      }
+    });
+
+    return statistics;
+  }
+
+  async batchOperation(
+    taskIds: string[],
+    action: BatchAction,
+    updateData?: Partial<Task>,
+  ): Promise<{ success: number; failed: number }> {
+    try {
+      let result;
+
+      if (action === BatchAction.COMPLETE) {
+        if (!updateData) {
+          throw new Error('Update data is required for update operation');
+        }
+        // Bulk update using QueryBuilder
+        result = await this.tasksRepository
+          .createQueryBuilder()
+          .update(Task)
+          .set(updateData)
+          .whereInIds(taskIds)
+          .execute();
+      } else if (action === BatchAction.DELETE) {
+        // Bulk delete using QueryBuilder
+        result = await this.tasksRepository
+          .createQueryBuilder()
+          .delete()
+          .from(Task)
+          .whereInIds(taskIds)
+          .execute();
+      } else {
+        throw new Error(`Unknown batch action: ${action}`);
+      }
+
+      return {
+        success: result.affected || 0,
+        failed: taskIds.length - (result.affected || 0),
+      };
+    } catch (error) {
+      throw new ServiceUnavailableException(`Batch operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
 }
