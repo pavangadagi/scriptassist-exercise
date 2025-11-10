@@ -13,7 +13,7 @@ async function bootstrap() {
       transform: true,
       forbidNonWhitelisted: true,
       transformOptions: {
-        enableImplicitConversion: true,
+        enableImplicitConversion: false, // Disabled to allow proper boolean string conversion
       },
     }),
   );
@@ -33,7 +33,10 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
+  console.log(`\n========================================`);
+  console.log(`🚀 Server started at: ${new Date().toISOString()}`);
   console.log(`Application running on: http://localhost:${port}`);
   console.log(`Swagger documentation: http://localhost:${port}/api`);
+  console.log(`========================================\n`);
 }
 bootstrap(); 
