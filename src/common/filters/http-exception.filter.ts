@@ -1,9 +1,12 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException, Logger } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { ObservableLogger } from '../services/logger.service';
 
 @Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(private readonly logger: ObservableLogger) {
+    this.logger.setContext('ExceptionFilter');
+  }
 
   catch(exception: HttpException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -11,26 +14,53 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
+    const correlationId = request.correlationId;
+    const userId = (request.user as any)?.id || (request.user as any)?.sub;
 
-    // TODO: Implement comprehensive error handling
-    // This filter should:
-    // 1. Log errors appropriately based on their severity
-    // 2. Format error responses in a consistent way
-    // 3. Include relevant error details without exposing sensitive information
-    // 4. Handle different types of errors with appropriate status codes
+    // Determine log level based on status code
+    const isClientError = status >= 400 && status < 500;
+    const isServerError = status >= 500;
 
-    this.logger.error(
-      `HTTP Exception: ${exception.message}`,
-      exception.stack,
-    );
+    const errorContext = {
+      correlationId,
+      userId,
+      method: request.method,
+      url: request.url,
+      statusCode: status,
+      errorName: exception.name,
+      ip: request.ip,
+    };
 
-    // Basic implementation (to be enhanced by candidates)
-    response.status(status).json({
+    if (isServerError) {
+      this.logger.error(
+        `Server error: ${exception.message}`,
+        exception.stack,
+        errorContext,
+      );
+    } else if (isClientError) {
+      this.logger.warn(`Client error: ${exception.message}`, errorContext);
+    } else {
+      this.logger.log(`HTTP exception: ${exception.message}`, errorContext);
+    }
+
+    // Format error response
+    const errorResponse: Record<string, any> = {
       success: false,
       statusCode: status,
       message: exception.message,
+      error: typeof exceptionResponse === 'object' 
+        ? (exceptionResponse as any).error 
+        : exceptionResponse,
       path: request.url,
       timestamp: new Date().toISOString(),
-    });
+      correlationId,
+    };
+
+    // Don't expose stack traces in production
+    if (process.env.NODE_ENV !== 'production' && isServerError) {
+      errorResponse.stack = exception.stack;
+    }
+
+    response.status(status).json(errorResponse);
   }
 } 

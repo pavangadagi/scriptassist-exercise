@@ -1,15 +1,20 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
+import { APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
 import { UsersModule } from './modules/users/users.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TaskProcessorModule } from './queues/task-processor/task-processor.module';
 import { ScheduledTasksModule } from './queues/scheduled-tasks/scheduled-tasks.module';
 import { CacheService } from './common/services/cache.service';
+import { ObservableLogger } from './common/services/logger.service';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import jwtConfig from './config/jwt.config';
 
 @Module({
@@ -76,12 +81,32 @@ import jwtConfig from './config/jwt.config';
   providers: [
     // Inefficient: Global cache service with no configuration options
     // This creates a single in-memory cache instance shared across all modules
-    CacheService
+    CacheService,
+    // Observable logging service
+    ObservableLogger,
+    // Global logging interceptor
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+    // Global exception filter
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
   ],
   exports: [
     // Exporting the cache service makes it available to other modules
     // but creates tight coupling
-    CacheService
+    CacheService,
+    ObservableLogger,
   ]
 })
-export class AppModule {} 
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Apply correlation ID middleware to all routes
+    consumer
+      .apply(CorrelationIdMiddleware)
+      .forRoutes('*');
+  }
+} 

@@ -11,22 +11,36 @@ import { BatchAction } from './enums/batch-action.enum';
 import { PaginatedResponse } from '../../types/pagination.interface';
 import { FindTasksOptions } from './interfaces/find-tasks-options.interface';
 import { TaskStatistics } from './interfaces/task-statistics.interface';
+import { ObservableLogger } from '../../common/services/logger.service';
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new ObservableLogger();
+
   constructor(
     @InjectRepository(Task)
     private tasksRepository: Repository<Task>,
     @InjectQueue('task-processing')
     private taskQueue: Queue,
-  ) {}
+  ) {
+    this.logger.setContext('TasksService');
+  }
 
   async create(createTaskDto: CreateTaskDto): Promise<Task> {
+    const startTime = Date.now();
+    this.logger.log('Creating new task', { 
+      title: createTaskDto.title,
+      priority: createTaskDto.priority,
+      userId: createTaskDto.userId,
+    });
+
     try {
-      return await this.tasksRepository.manager.transaction(async manager => {
+      const result = await this.tasksRepository.manager.transaction(async manager => {
         // Create and save task
         const task = manager.create(Task, createTaskDto);
         const savedTask = await manager.save(task);
+
+        this.logger.debug('Task saved to database', { taskId: savedTask.id });
 
         // Add to queue - failure will rollback the task creation
         await this.taskQueue.add('task-status-update', {
@@ -34,19 +48,39 @@ export class TasksService {
           status: savedTask.status,
         });
 
+        this.logger.debug('Task added to processing queue', { taskId: savedTask.id });
+
         return savedTask;
       });
+
+      const duration = Date.now() - startTime;
+      this.logger.log('Task created successfully', { 
+        taskId: result.id,
+        duration,
+      });
+
+      return result;
     } catch (error: any) {
+      const duration = Date.now() - startTime;
+      
       // Handle specific error types
       if (error.message.includes('queue')) {
+        this.logger.error('Queue service unavailable', error.stack, { duration });
         throw new ServiceUnavailableException('Task processing service is currently unavailable');
       }
       
       if (error.code === '23505') { // PostgreSQL unique violation
+        this.logger.warn('Duplicate task creation attempt', { 
+          title: createTaskDto.title,
+          duration,
+        });
         throw new ConflictException('A task with similar properties already exists');
       }
       
-      // Re-throw other errors
+      this.logger.error('Failed to create task', error.stack, { 
+        error: error.message,
+        duration,
+      });
       throw error;
     }
     
@@ -64,10 +98,13 @@ export class TasksService {
   }
 
   async findAll(options?: FindTasksOptions): Promise<PaginatedResponse<Task>> {
+    const startTime = Date.now();
     const page = options?.page || 1;
     const limit = options?.limit || 10;
     const skip = (page - 1) * limit;
-    console.log("options: ", options)
+    
+    this.logger.debug('Finding tasks', { page, limit, filters: options });
+    
     const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
     // Select only IDs if requested
@@ -109,6 +146,14 @@ export class TasksService {
     // Execute query with count
     const [data, total] = await queryBuilder.getManyAndCount();
 
+    const duration = Date.now() - startTime;
+    this.logger.log('Tasks retrieved', { 
+      count: data.length,
+      total,
+      page,
+      duration,
+    });
+
     return {
       data,
       meta: {
@@ -140,12 +185,16 @@ export class TasksService {
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
+    const startTime = Date.now();
+    this.logger.log('Updating task', { taskId: id, updates: updateTaskDto });
+
     try {
-      return await this.tasksRepository.manager.transaction(async (manager) => {
+      const result = await this.tasksRepository.manager.transaction(async (manager) => {
         // Find task within transaction
         const task = await manager.findOne(Task, { where: { id } });
 
         if (!task) {
+          this.logger.warn('Task not found for update', { taskId: id });
           throw new NotFoundException(`Task with ID ${id} not found`);
         }
 
@@ -159,6 +208,12 @@ export class TasksService {
 
         // Add to queue if status changed
         if (originalStatus !== updatedTask.status) {
+          this.logger.debug('Task status changed, adding to queue', { 
+            taskId: id,
+            oldStatus: originalStatus,
+            newStatus: updatedTask.status,
+          });
+          
           await this.taskQueue.add('task-status-update', {
             taskId: updatedTask.id,
             status: updatedTask.status,
@@ -167,15 +222,31 @@ export class TasksService {
 
         return updatedTask;
       });
+
+      const duration = Date.now() - startTime;
+      this.logger.log('Task updated successfully', { taskId: id, duration });
+
+      return result;
     } catch (error: any) {
+      const duration = Date.now() - startTime;
+      
       if (error instanceof NotFoundException) {
         throw error;
       }
 
       if (error.message?.includes('queue')) {
+        this.logger.error('Queue service unavailable during update', error.stack, { 
+          taskId: id,
+          duration,
+        });
         throw new ServiceUnavailableException('Task processing service is currently unavailable');
       }
 
+      this.logger.error('Failed to update task', error.stack, { 
+        taskId: id,
+        error: error.message,
+        duration,
+      });
       throw error;
     }
   }

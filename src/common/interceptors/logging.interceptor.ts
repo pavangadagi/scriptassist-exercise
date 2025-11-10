@@ -1,37 +1,97 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { ObservableLogger } from '../services/logger.service';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(LoggingInterceptor.name);
+  constructor(private readonly logger: ObservableLogger) {
+    this.logger.setContext('HTTP');
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    // TODO: Implement comprehensive request/response logging
-    // This interceptor should:
-    // 1. Log incoming requests with relevant details
-    // 2. Measure and log response time
-    // 3. Log outgoing responses
-    // 4. Include contextual information like user IDs when available
-    // 5. Avoid logging sensitive information
-
     const req = context.switchToHttp().getRequest();
-    const method = req.method;
-    const url = req.url;
-    const now = Date.now();
+    const res = context.switchToHttp().getResponse();
+    const { method, url, body, query, params, headers } = req;
+    const correlationId = req.correlationId;
+    const userId = req.user?.id || req.user?.sub;
+    const startTime = Date.now();
 
-    // Basic implementation (to be enhanced by candidates)
-    this.logger.log(`Request: ${method} ${url}`);
+    // Log incoming request
+    this.logger.log('Incoming request', {
+      correlationId,
+      userId,
+      method,
+      url,
+      query: Object.keys(query).length > 0 ? query : undefined,
+      params: Object.keys(params).length > 0 ? params : undefined,
+      userAgent: headers['user-agent'],
+      ip: req.ip,
+    });
+
+    // Log request body (excluding sensitive fields)
+    if (body && Object.keys(body).length > 0) {
+      const sanitizedBody = this.sanitizeBody(body);
+      this.logger.debug('Request body', {
+        correlationId,
+        body: sanitizedBody,
+      });
+    }
 
     return next.handle().pipe(
       tap({
-        next: (val) => {
-          this.logger.log(`Response: ${method} ${url} ${Date.now() - now}ms`);
+        next: (responseBody) => {
+          const duration = Date.now() - startTime;
+          const statusCode = res.statusCode;
+
+          this.logger.log('Request completed', {
+            correlationId,
+            userId,
+            method,
+            url,
+            statusCode,
+            duration,
+            responseSize: JSON.stringify(responseBody || {}).length,
+          });
+
+          // Log slow requests
+          if (duration > 1000) {
+            this.logger.warn('Slow request detected', {
+              correlationId,
+              method,
+              url,
+              duration,
+            });
+          }
         },
-        error: (err) => {
-          this.logger.error(`Error in ${method} ${url} ${Date.now() - now}ms: ${err.message}`);
+        error: (error) => {
+          const duration = Date.now() - startTime;
+          
+          this.logger.error('Request failed', error.stack, {
+            correlationId,
+            userId,
+            method,
+            url,
+            duration,
+            errorName: error.name,
+            errorMessage: error.message,
+            statusCode: error.status || 500,
+          });
         },
       }),
     );
+  }
+
+  private sanitizeBody(body: any): any {
+    const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization'];
+    const sanitized = { ...body };
+
+    for (const field of sensitiveFields) {
+      if (sanitized[field]) {
+        sanitized[field] = '***REDACTED***';
+      }
+    }
+
+    return sanitized;
   }
 } 

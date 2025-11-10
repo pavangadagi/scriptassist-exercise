@@ -218,6 +218,69 @@ Solution:
 - Enhanced logging with batch numbers and error tracking
 Benefits: Processes all overdue tasks, cleaner code, consistent retry behavior
 
+## Observability Implementation
+
+### Logging with Observability Pattern
+
+Implemented comprehensive logging observability pattern for monitoring, debugging, and performance tracking across the entire application.
+
+#### Core Components
+
+**1. ObservableLogger Service** (`src/common/services/logger.service.ts`)
+- Structured logging with JSON output in production, human-readable in development
+- Support for multiple log levels: ERROR, WARN, INFO, DEBUG
+- Context tracking for better log organization
+- Automatic timestamp and metadata inclusion
+- Color-coded console output for development
+
+**2. Correlation ID Middleware** (`src/common/middleware/correlation-id.middleware.ts`)
+- Generates unique correlation ID for each request (UUID v4)
+- Accepts correlation ID from `x-correlation-id` header for distributed tracing
+- Adds correlation ID to response headers
+- Stores correlation ID in request object for use throughout request lifecycle
+- Type-safe implementation with Express type extensions
+
+**3. Enhanced Logging Interceptor** (`src/common/interceptors/logging.interceptor.ts`)
+- Logs all incoming HTTP requests with method, URL, query params, and headers
+- Tracks request/response duration for performance monitoring
+- Includes correlation ID and user ID in all logs
+- Sanitizes sensitive data (passwords, tokens, secrets) before logging
+- Alerts on slow requests (>1000ms threshold)
+- Logs response status codes and response size
+- Comprehensive error logging with stack traces
+
+**4. Enhanced Exception Filter** (`src/common/filters/http-exception.filter.ts`)
+- Logs errors with appropriate severity levels (ERROR for 5xx, WARN for 4xx)
+- Includes correlation ID in error responses for tracing
+- Structured error response format with timestamp
+- Hides stack traces in production for security
+- Tracks error context (user ID, method, URL, IP address)
+
+**5. Service-Level Logging**
+- **TasksService**: Logs create, update, findAll operations with duration tracking
+  - Tracks task creation with title, priority, and user ID
+  - Logs database operations and queue job additions
+  - Monitors slow queries and operations
+  - Logs success and failure paths with detailed context
+- **AuthService**: Logs authentication operations
+  - Login attempts with success/failure tracking
+  - Registration events with user details
+  - Token refresh operations with validation failures
+  - Logout and token revocation events
+  - Security-focused logging without exposing sensitive data
+
+#### Files Added/Modified
+
+- `src/common/services/logger.service.ts` - Observable logger implementation
+- `src/common/middleware/correlation-id.middleware.ts` - Correlation ID middleware
+- `src/common/interceptors/logging.interceptor.ts` - Enhanced HTTP logging
+- `src/common/filters/http-exception.filter.ts` - Enhanced error logging
+- `src/types/express.d.ts` - TypeScript type extensions for Express
+- `src/modules/tasks/tasks.service.ts` - Added logging to all operations
+- `src/modules/auth/auth.service.ts` - Added logging to auth operations
+- `src/app.module.ts` - Registered global interceptor, filter, and middleware
+- `src/common/services/logger.example.md` - Usage documentation and examples
+
 ## File Changes
 
 ### Authentication
