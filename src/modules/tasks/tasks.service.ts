@@ -103,63 +103,75 @@ export class TasksService {
     };
   }
 
-  async findOne(id: string): Promise<Task> {
-    // Inefficient implementation: two separate database calls
-    const count = await this.tasksRepository.count({ where: { id } });
+  async findOne(id: string, includeUser = false): Promise<Task> {
+    const queryBuilder = this.tasksRepository
+      .createQueryBuilder('task')
+      .where('task.id = :id', { id });
 
-    if (count === 0) {
+    // Optional user relation
+    if (includeUser) {
+      queryBuilder.leftJoinAndSelect('task.user', 'user');
+    }
+
+    const task = await queryBuilder.getOne();
+
+    if (!task) {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
 
-    return (await this.tasksRepository.findOne({
-      where: { id },
-      relations: ['user'],
-    })) as Task;
+    return task;
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
-    // Inefficient implementation: multiple database calls
-    // and no transaction handling
-    const task = await this.findOne(id);
+    try {
+      return await this.tasksRepository.manager.transaction(async (manager) => {
+        // Find task within transaction
+        const task = await manager.findOne(Task, { where: { id } });
 
-    const originalStatus = task.status;
+        if (!task) {
+          throw new NotFoundException(`Task with ID ${id} not found`);
+        }
 
-    // Directly update each field individually
-    if (updateTaskDto.title) task.title = updateTaskDto.title;
-    if (updateTaskDto.description) task.description = updateTaskDto.description;
-    if (updateTaskDto.status) task.status = updateTaskDto.status;
-    if (updateTaskDto.priority) task.priority = updateTaskDto.priority;
-    if (updateTaskDto.dueDate) task.dueDate = updateTaskDto.dueDate;
+        const originalStatus = task.status;
 
-    const updatedTask = await this.tasksRepository.save(task);
+        // Merge updates efficiently
+        manager.merge(Task, task, updateTaskDto);
 
-    // Add to queue if status changed, but without proper error handling
-    if (originalStatus !== updatedTask.status) {
-      this.taskQueue.add('task-status-update', {
-        taskId: updatedTask.id,
-        status: updatedTask.status,
+        // Save within transaction
+        const updatedTask = await manager.save(task);
+
+        // Add to queue if status changed
+        if (originalStatus !== updatedTask.status) {
+          await this.taskQueue.add('task-status-update', {
+            taskId: updatedTask.id,
+            status: updatedTask.status,
+          });
+        }
+
+        return updatedTask;
       });
-    }
+    } catch (error: any) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
 
-    return updatedTask;
+      if (error.message?.includes('queue')) {
+        throw new ServiceUnavailableException('Task processing service is currently unavailable');
+      }
+
+      throw error;
+    }
   }
 
   async remove(id: string): Promise<void> {
-    // Inefficient implementation: two separate database calls
-    const task = await this.findOne(id);
-    await this.tasksRepository.remove(task);
+    const result = await this.tasksRepository.delete(id);
+
+    if (result.affected === 0) {
+      throw new NotFoundException(`Task with ID ${id} not found`);
+    }
   }
 
-  async findByStatus(status: TaskStatus): Promise<Task[]> {
-    // Inefficient implementation: doesn't use proper repository patterns
-    const query = 'SELECT * FROM tasks WHERE status = $1';
-    return this.tasksRepository.query(query, [status]);
-  }
 
-  async updateStatus(id: string, status: string): Promise<Task> {
-    // This method will be called by the task processor
-    const task = await this.findOne(id);
-    task.status = status as any;
-    return this.tasksRepository.save(task);
-  }
+
+
 }

@@ -44,10 +44,8 @@ export class TaskProcessorService extends WorkerHost {
       return { success: false, error: 'Missing required data' };
     }
     
-    // Inefficient: No validation of status values
-    // No transaction handling
-    // No retry mechanism
-    const task = await this.tasksService.updateStatus(taskId, status);
+    // Use the standard update method with transaction handling
+    const task = await this.tasksService.update(taskId, { status });
     
     return { 
       success: true,
