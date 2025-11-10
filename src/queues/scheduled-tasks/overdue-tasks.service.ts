@@ -2,47 +2,79 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
-import { Task } from '../../modules/tasks/entities/task.entity';
-import { TaskStatus } from '../../modules/tasks/enums/task-status.enum';
+import { TasksService } from '../../modules/tasks/tasks.service';
 
 @Injectable()
 export class OverdueTasksService {
   private readonly logger = new Logger(OverdueTasksService.name);
+  private readonly BATCH_SIZE = 100;
 
   constructor(
     @InjectQueue('task-processing')
     private taskQueue: Queue,
-    @InjectRepository(Task)
-    private tasksRepository: Repository<Task>,
+    private tasksService: TasksService,
   ) {}
 
-  // TODO: Implement the overdue tasks checker
-  // This method should run every hour and check for overdue tasks
   @Cron(CronExpression.EVERY_HOUR)
   async checkOverdueTasks() {
-    this.logger.debug('Checking for overdue tasks...');
-    
-    // TODO: Implement overdue tasks checking logic
-    // 1. Find all tasks that are overdue (due date is in the past)
-    // 2. Add them to the task processing queue
-    // 3. Log the number of overdue tasks found
-    
-    // Example implementation (incomplete - to be implemented by candidates)
-    const now = new Date();
-    const overdueTasks = await this.tasksRepository.find({
-      where: {
-        dueDate: LessThan(now),
-        status: TaskStatus.PENDING,
-      },
-    });
-    
-    this.logger.log(`Found ${overdueTasks.length} overdue tasks`);
-    
-    // Add tasks to the queue to be processed
-    // TODO: Implement adding tasks to the queue
-    
-    this.logger.debug('Overdue tasks check completed');
+    const startTime = Date.now();
+    this.logger.log('Starting overdue tasks check...');
+
+    try {
+      const taskIds: string[] = [];
+      let page = 1;
+      let totalPages = 1;
+
+      // Fetch all overdue task IDs with pagination
+      do {
+        const result = await this.tasksService.findAll({
+          isOverdue: true,
+          idsOnly: true,
+          limit: 10000,
+          page,
+        });
+
+        taskIds.push(...result.data.map((task) => task.id));
+        totalPages = result.meta.totalPages;
+        page++;
+      } while (page <= totalPages);
+
+      if (taskIds.length === 0) {
+        this.logger.log('No overdue tasks found');
+        return;
+      }
+
+      this.logger.log(`Found ${taskIds.length} overdue tasks`);
+
+      let queuedCount = 0;
+      for (let i = 0; i < taskIds.length; i += this.BATCH_SIZE) {
+        const batch = taskIds.slice(i, i + this.BATCH_SIZE);
+
+        try {
+          await this.taskQueue.add(
+            'overdue-tasks-notification',
+            { taskIds: batch },
+          );
+
+          queuedCount += batch.length;
+          this.logger.debug(`Queued batch ${Math.floor(i / this.BATCH_SIZE) + 1}: ${batch.length} tasks`);
+        } catch (error) {
+          this.logger.error(
+            `Failed to queue batch ${Math.floor(i / this.BATCH_SIZE) + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `Overdue tasks check completed: ${queuedCount}/${taskIds.length} tasks queued in ${duration}ms`,
+      );
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.logger.error(
+        `Overdue tasks check failed after ${duration}ms: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 } 

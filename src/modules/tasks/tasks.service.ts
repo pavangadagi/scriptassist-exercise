@@ -70,8 +70,13 @@ export class TasksService {
 
     const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
+    // Select only IDs if requested
+    if (options?.idsOnly) {
+      queryBuilder.select('task.id');
+    }
+
     // Optional user relation
-    if (options?.includeUser) {
+    if (options?.includeUser && !options?.idsOnly) {
       queryBuilder.leftJoinAndSelect('task.user', 'user');
     }
 
@@ -86,6 +91,16 @@ export class TasksService {
 
     if (options?.userId) {
       queryBuilder.andWhere('task.userId = :userId', { userId: options.userId });
+    }
+
+    // Overdue filter
+    if (options?.isOverdue) {
+      const now = new Date();
+      queryBuilder.andWhere('task.dueDate < :now', { now });
+      queryBuilder.andWhere('task.status IN (:...statuses)', {
+        statuses: [TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+      });
+      queryBuilder.orderBy('task.dueDate', 'ASC');
     }
 
     // Pagination
