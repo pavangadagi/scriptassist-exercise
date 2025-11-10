@@ -188,6 +188,30 @@ Solution:
 - Returns detailed statistics (processed count, total tasks)
 Benefits: Scalable processing, system stability, ready for notification integration
 
+### Queue Configuration - Centralized Management
+
+Problem: BullMQ queue registered in multiple modules with conflicting default job options.
+Solution:
+- Created centralized queue configuration in src/queues/queue.config.ts
+- Queue registered only once in TaskProcessorModule (where processor lives)
+- Other modules import TaskProcessorModule to access the queue
+- Consistent default job options across entire application:
+  - 3 retry attempts with exponential backoff (starting at 1 second)
+  - Completed jobs kept for 24 hours (max 1000 jobs)
+  - Failed jobs kept for 7 days for debugging
+Benefits: Single source of truth, no conflicting configurations, easier maintenance
+
+### Overdue Tasks Service - Pagination and Batch Processing
+
+Problem: Using predifined functions to fetch overdue tasks.
+Solution:
+- Implemented proper pagination loop using totalPages from PaginatedResponse
+- Fetches all overdue tasks regardless of count
+- Removed redundant job options (handled by queue default configuration)
+- Batch processing (100 tasks per queue job) for efficient processing
+- Enhanced logging with batch numbers and error tracking
+Benefits: Processes all overdue tasks, cleaner code, consistent retry behavior
+
 ## File Changes
 
 ### Authentication
@@ -228,3 +252,9 @@ Benefits: Scalable processing, system stability, ready for notification integrat
   - Better error handling with stack traces and performance tracking
 - src/queues/task-processor/interfaces/job-result.interface.ts - Job result type
 - src/types/pagination.interface.ts - Using existing global pagination types
+
+### Queue Management
+- src/queues/queue.config.ts - Centralized queue configuration with default job options
+- src/queues/task-processor/task-processor.module.ts - Single queue registration with shared config
+- src/queues/scheduled-tasks/scheduled-tasks.module.ts - Imports TaskProcessorModule instead of re-registering queue
+- src/queues/scheduled-tasks/overdue-tasks.service.ts - Proper pagination loop, removed redundant job options
