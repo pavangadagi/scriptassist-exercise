@@ -5,14 +5,19 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RateLimit } from '../../common/decorators/rate-limit.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('auth')
 @Controller('auth')
+@RateLimit({ limit: 20, ttl: 60 }) // 20 requests per minute for auth endpoints
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   @ApiOperation({ summary: 'Login with email and password' })
+  @Throttle({ default: { limit: 5, ttl: 900000 } }) // 5 attempts per 15 minutes
+  @RateLimit({ limit: 5, ttl: 900, keyPrefix: 'auth:login' })
   login(@Body() loginDto: LoginDto) {
     console.log("login")
     return this.authService.login(loginDto);
@@ -20,6 +25,7 @@ export class AuthController {
 
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
+  @RateLimit({ limit: 3, ttl: 3600, keyPrefix: 'auth:register' }) // 3 registrations per hour
   register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }

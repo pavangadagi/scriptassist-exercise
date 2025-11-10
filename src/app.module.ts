@@ -4,17 +4,21 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { UsersModule } from './modules/users/users.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { HealthModule } from './modules/health/health.module';
 import { TaskProcessorModule } from './queues/task-processor/task-processor.module';
 import { ScheduledTasksModule } from './queues/scheduled-tasks/scheduled-tasks.module';
 import { CacheService } from './common/services/cache.service';
 import { ObservableLogger } from './common/services/logger.service';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { RateLimitInterceptor } from './common/interceptors/rate-limit.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { CustomThrottlerGuard } from './common/guards/throttler.guard';
+import { RateLimitService } from './common/services/rate-limit.service';
 import jwtConfig from './config/jwt.config';
 
 @Module({
@@ -63,8 +67,14 @@ import jwtConfig from './config/jwt.config';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ([
         {
-          ttl: 60,
-          limit: 10,
+          name: 'default',
+          ttl: configService.get('RATE_LIMIT_TTL', 60000), // 60 seconds
+          limit: configService.get('RATE_LIMIT_MAX', 100), // 100 requests
+        },
+        {
+          name: 'auth',
+          ttl: configService.get('RATE_LIMIT_AUTH_TTL', 900000), // 15 minutes
+          limit: configService.get('RATE_LIMIT_AUTH_MAX', 5), // 5 login attempts
         },
       ]),
     }),
@@ -73,21 +83,30 @@ import jwtConfig from './config/jwt.config';
     UsersModule,
     TasksModule,
     AuthModule,
+    HealthModule,
     
     // Queue processing modules
     TaskProcessorModule,
     ScheduledTasksModule,
   ],
   providers: [
-    // Inefficient: Global cache service with no configuration options
-    // This creates a single in-memory cache instance shared across all modules
+    // Services
     CacheService,
-    // Observable logging service
     ObservableLogger,
-    // Global logging interceptor
+    RateLimitService,
+    // Global guards
+    {
+      provide: APP_GUARD,
+      useClass: CustomThrottlerGuard,
+    },
+    // Global interceptors
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RateLimitInterceptor,
     },
     // Global exception filter
     {
@@ -96,10 +115,9 @@ import jwtConfig from './config/jwt.config';
     },
   ],
   exports: [
-    // Exporting the cache service makes it available to other modules
-    // but creates tight coupling
     CacheService,
     ObservableLogger,
+    RateLimitService,
   ]
 })
 export class AppModule implements NestModule {

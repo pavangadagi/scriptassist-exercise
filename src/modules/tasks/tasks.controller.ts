@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query, HttpStatus } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -7,14 +7,13 @@ import { BatchOperationDto } from './dto/batch-operation.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
 import { TaskStatus } from './enums/task-status.enum';
 import { BatchAction } from './enums/batch-action.enum';
-import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('tasks')
 @Controller('tasks')
-@UseGuards(JwtAuthGuard, RateLimitGuard)
-@RateLimit({ limit: 100, windowMs: 60000 })
+@UseGuards(JwtAuthGuard)
+@RateLimit({ limit: 100, ttl: 60 }) // 100 requests per minute
 @ApiBearerAuth()
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
@@ -78,6 +77,7 @@ export class TasksController {
   @ApiOperation({ summary: 'Batch process multiple tasks' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Batch operation completed' })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid action or empty task list' })
+  @RateLimit({ limit: 10, ttl: 60, keyPrefix: 'tasks:batch' }) // Stricter limit for batch operations
   async batchProcess(@Body() batchDto: BatchOperationDto) {
     const { tasks, action } = batchDto;
 
