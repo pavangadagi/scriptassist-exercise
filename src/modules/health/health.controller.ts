@@ -20,18 +20,24 @@ export class HealthController {
   ) {}
 
   @Get()
-  @HealthCheck()
   @ApiOperation({ summary: 'Health check endpoint' })
   @ApiResponse({ status: 200, description: 'Service is healthy' })
   @ApiResponse({ status: 503, description: 'Service is unhealthy' })
   @SkipRateLimit()
-  check() {
-    return this.health.check([
+  async check() {
+    const result = await this.health.check([
       () => this.db.pingCheck('database'),
       () => this.redis.isHealthy('redis'),
       () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024), // 150MB
       () => this.memory.checkRSS('memory_rss', 300 * 1024 * 1024), // 300MB
     ]);
+
+    // Return simplified response without duplicate info/details
+    return {
+      status: result.status,
+      checks: result.details,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   @Get('metrics')

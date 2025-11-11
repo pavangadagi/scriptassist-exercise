@@ -16,18 +16,23 @@ import { createHash } from 'crypto';
  */
 @Injectable()
 export class CustomThrottlerGuard extends ThrottlerGuard {
+  private readonly customReflector: Reflector;
+
   constructor(
-    protected readonly reflector: Reflector,
     protected readonly configService: ConfigService,
   ) {
-    super({ throttlers: [] }, {} as ThrottlerStorage, reflector);
+    super({ throttlers: [] }, {} as ThrottlerStorage, new Reflector());
+    this.customReflector = new Reflector();
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if rate limiting should be skipped
-    const skipRateLimit = this.reflector.getAllAndOverride<boolean>(
+    const skipRateLimit = this.customReflector.get<boolean>(
       SKIP_RATE_LIMIT_KEY,
-      [context.getHandler(), context.getClass()],
+      context.getHandler(),
+    ) || this.customReflector.get<boolean>(
+      SKIP_RATE_LIMIT_KEY,
+      context.getClass(),
     );
 
     if (skipRateLimit) {
@@ -35,9 +40,12 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     }
 
     // Check for custom rate limit options
-    const customOptions = this.reflector.getAllAndOverride<RateLimitOptions>(
+    const customOptions = this.customReflector.get<RateLimitOptions>(
       RATE_LIMIT_KEY,
-      [context.getHandler(), context.getClass()],
+      context.getHandler(),
+    ) || this.customReflector.get<RateLimitOptions>(
+      RATE_LIMIT_KEY,
+      context.getClass(),
     );
 
     // If custom options with skipIf function, evaluate it
