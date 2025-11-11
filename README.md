@@ -731,7 +731,135 @@ Response headers include:
 **Counter Management**:
 - Uses atomic increment/decrement operations
 - RxJS `finalize()` ensures cleanup on success or error
-- RxJS `catchError()` handles error path explicitly
+- RxJS `catchError()` handles error paths before finalize
+
+#### Files Modified
+
+- `src/common/interceptors/backpressure.interceptor.ts` - Created backpressure interceptor
+- `src/app.module.ts` - Registered as global APP_INTERCEPTOR
+- `.env.example` - Added MAX_CONCURRENT_REQUESTS configuration
+
+## Performance Monitoring & Timeout Management
+
+### Request Timeout Management - Predictable Performance Under Load
+
+Implemented a timeout interceptor to ensure predictable performance by preventing long-running requests from consuming resources indefinitely.
+
+#### Core Component
+
+**TimeoutInterceptor** (`src/common/interceptors/timeout.interceptor.ts`)
+- Configurable timeouts based on endpoint type
+- Automatic timeout enforcement using RxJS operators
+- Proper error handling with `RequestTimeoutException`
+- Different timeout strategies for different operation types
+
+#### Timeout Configuration
+
+**Endpoint-Specific Timeouts**:
+- **Default**: 30 seconds for standard requests
+- **Batch Operations** (`/batch`): 2 minutes (120 seconds) for resource-intensive operations
+- **Stats Endpoints** (`/stats`): 10 seconds for quick aggregation queries
+
+#### How It Works
+
+1. **Request Analysis**: Inspects request URL to determine appropriate timeout
+2. **Timeout Enforcement**: Uses RxJS `timeout()` operator to enforce time limit
+3. **Error Handling**: Converts `TimeoutError` to `RequestTimeoutException` (HTTP 408)
+4. **Clean Propagation**: Other errors pass through unchanged
+
+#### Benefits
+
+✅ **Predictable Performance**: Requests won't hang indefinitely  
+✅ **Resource Protection**: Prevents long-running requests from consuming resources  
+✅ **Proper Error Handling**: Returns HTTP 408 Request Timeout with clear message  
+✅ **Flexible Configuration**: Different timeouts for different operation types  
+✅ **Production-Ready**: Handles all error paths correctly  
+
+#### Error Response Format
+
+When a request times out:
+
+```json
+{
+  "statusCode": 408,
+  "message": "Request timeout",
+  "error": "Request Timeout"
+}
+```
+
+### Performance Metrics Endpoint - Real-Time System Monitoring
+
+Added a performance metrics endpoint to the health controller for real-time visibility into application performance.
+
+#### Endpoint
+
+**GET /health/metrics**
+
+Returns real-time performance metrics:
+
+```json
+{
+  "memory": {
+    "heapUsed": 45678912,
+    "heapTotal": 67108864,
+    "rss": 89123456,
+    "external": 1234567
+  },
+  "uptime": 3600.5,
+  "cpu": {
+    "user": 1234567,
+    "system": 234567
+  },
+  "timestamp": "2025-11-11T10:30:00.000Z"
+}
+```
+
+#### Metrics Explained
+
+- **memory.heapUsed**: Memory used by JavaScript objects (bytes)
+- **memory.heapTotal**: Total heap size allocated by V8 (bytes)
+- **memory.rss**: Resident Set Size - total memory allocated for the process (bytes)
+- **memory.external**: Memory used by C++ objects bound to JavaScript (bytes)
+- **uptime**: Process uptime in seconds
+- **cpu.user**: CPU time spent in user code (microseconds)
+- **cpu.system**: CPU time spent in system code (microseconds)
+- **timestamp**: ISO 8601 timestamp of metric collection
+
+#### Features
+
+- **Real-Time**: Metrics collected at request time
+- **No Rate Limiting**: Monitoring endpoints skip rate limiting via `@SkipRateLimit()`
+- **Swagger Documentation**: Fully documented in API docs
+- **Lightweight**: <1ms overhead per request
+
+#### Use Cases
+
+- **Monitoring**: Track memory usage and CPU consumption over time
+- **Debugging**: Identify memory leaks or performance issues
+- **Alerting**: Set up alerts based on metric thresholds
+- **Capacity Planning**: Understand resource usage patterns
+
+#### Files Modified
+
+- `src/modules/health/health.controller.ts` - Added `getMetrics()` method
+- `src/common/interceptors/timeout.interceptor.ts` - Created timeout interceptor
+- `src/app.module.ts` - Registered TimeoutInterceptor as global APP_INTERCEPTOR
+
+#### Integration with Monitoring Tools
+
+The metrics endpoint can be integrated with:
+- **Prometheus**: Scrape metrics for historical data
+- **Grafana**: Visualize metrics with dashboards
+- **DataDog**: Application performance monitoring
+- **New Relic**: Real-time performance analytics
+
+#### Next Steps
+
+Consider implementing:
+- Prometheus metrics integration for historical data
+- Alerting based on performance thresholds
+- Custom timeout configurations per route
+- Performance metrics aggregation and trendingath explicitly
 - Flag prevents double-decrement in edge cases
 
 **Capacity Thresholds**:

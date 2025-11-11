@@ -15,6 +15,7 @@ import { CacheService } from './common/services/cache.service';
 import { ObservableLogger } from './common/services/logger.service';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { RateLimitInterceptor } from './common/interceptors/rate-limit.interceptor';
+import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { CustomThrottlerGuard } from './common/guards/throttler.guard';
@@ -115,6 +116,10 @@ import jwtConfig from './config/jwt.config';
     {
       provide: APP_INTERCEPTOR,
       useClass: RateLimitInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TimeoutInterceptor,
     },
     // Global exception filter
     {

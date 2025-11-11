@@ -33,4 +33,22 @@ export class HealthController {
       () => this.memory.checkRSS('memory_rss', 300 * 1024 * 1024), // 300MB
     ]);
   }
+
+  @Get('metrics')
+  @ApiOperation({ summary: 'Get performance metrics' })
+  @ApiResponse({ status: 200, description: 'Performance metrics retrieved' })
+  @SkipRateLimit()
+  getMetrics() {
+    return {
+      memory: {
+        heapUsed: process.memoryUsage().heapUsed,
+        heapTotal: process.memoryUsage().heapTotal,
+        rss: process.memoryUsage().rss,
+        external: process.memoryUsage().external,
+      },
+      uptime: process.uptime(),
+      cpu: process.cpuUsage(),
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
