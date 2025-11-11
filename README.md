@@ -658,6 +658,91 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
+## Backpressure Mechanisms
+
+### HTTP Request Backpressure - Concurrent Request Limiting
+
+Implemented a backpressure interceptor to protect the system from overload by limiting concurrent HTTP requests. This prevents resource exhaustion and ensures predictable performance under high load.
+
+#### Core Component
+
+**BackpressureInterceptor** (`src/common/interceptors/backpressure.interceptor.ts`)
+- Tracks active concurrent HTTP requests across the application
+- Rejects requests when system is at capacity (returns HTTP 503)
+- Automatic counter management using RxJS operators
+- Comprehensive monitoring and logging at capacity thresholds
+- Thread-safe implementation with proper error handling
+
+#### How It Works
+
+1. **Capacity Check**: Before processing each request, checks if `activeRequests < maxConcurrent`
+2. **Request Rejection**: Returns HTTP 503 Service Unavailable with `Retry-After: 5` header when at capacity
+3. **Counter Management**: Increments counter on request start, decrements on completion or error
+4. **Guaranteed Cleanup**: Uses RxJS `finalize()` and `catchError()` to ensure counter decrements exactly once
+
+#### Monitoring & Logging
+
+The interceptor provides comprehensive visibility into system load:
+
+- **Capacity Warning (80%)**: Logs when active requests reach 80% of max capacity
+  - Example: "High capacity: 800/1000 active requests (80.0%)"
+  - Includes spam prevention (max 1 log per minute)
+
+- **Request Rejection (100%)**: Logs each rejected request when at capacity
+  - Example: "Request rejected - server at capacity: 1000/1000 active requests"
+
+- **Capacity Recovery (<50%)**: Logs when system recovers after being at capacity
+  - Example: "Capacity recovered: 450/1000 active requests"
+  - Only logs after system was previously at 100% capacity
+
+#### Configuration
+
+```env
+# Backpressure Configuration
+MAX_CONCURRENT_REQUESTS=1000      # Maximum concurrent HTTP requests (default: 1000)
+```
+
+#### Benefits
+
+✅ **System Protection**: Prevents resource exhaustion and cascading failures  
+✅ **Predictable Performance**: Maintains consistent response times under load  
+✅ **Graceful Degradation**: Returns proper HTTP 503 with retry guidance  
+✅ **Visibility**: Comprehensive logging for capacity monitoring  
+✅ **Thread-Safe**: Proper counter management prevents race conditions  
+✅ **Production-Ready**: Handles all error paths correctly  
+
+#### Error Response Format
+
+When a request is rejected due to capacity:
+
+```json
+{
+  "statusCode": 503,
+  "message": "Server is at capacity, please retry later",
+  "retryAfter": 5
+}
+```
+
+Response headers include:
+- `Retry-After: 5` - Client should wait 5 seconds before retrying
+
+#### Implementation Details
+
+**Counter Management**:
+- Uses atomic increment/decrement operations
+- RxJS `finalize()` ensures cleanup on success or error
+- RxJS `catchError()` handles error path explicitly
+- Flag prevents double-decrement in edge cases
+
+**Capacity Thresholds**:
+- 80% capacity: Warning logs (with spam prevention)
+- 100% capacity: Request rejection + warning logs
+- <50% after full: Recovery logs (one-time after being at capacity)
+
+#### Files Created
+
+- `src/common/interceptors/backpressure.interceptor.ts` - Backpressure interceptor implementation
+
 ## Dependencies
 
 ### Core Dependencies
