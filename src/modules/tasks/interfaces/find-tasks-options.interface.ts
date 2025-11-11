@@ -8,4 +8,5 @@ export interface FindTasksOptions extends PaginationOptions {
   includeUser?: boolean;
   isOverdue?: boolean;
   idsOnly?: boolean;
+  search?: string;
 }

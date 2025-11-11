@@ -379,4 +379,110 @@ export class TasksService {
       throw new ServiceUnavailableException(`Batch operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
+
+  /**
+   * Stream tasks for large datasets without loading all into memory
+   * Useful for exports or processing large result sets
+   */
+  async *streamTasks(options?: FindTasksOptions): AsyncGenerator<Task> {
+    const queryBuilder = this.tasksRepository.createQueryBuilder('task');
+
+    // Apply filters
+    if (options?.status) {
+      queryBuilder.andWhere('task.status = :status', { status: options.status });
+    }
+
+    if (options?.priority) {
+      queryBuilder.andWhere('task.priority = :priority', { priority: options.priority });
+    }
+
+    if (options?.userId) {
+      queryBuilder.andWhere('task.userId = :userId', { userId: options.userId });
+    }
+
+    if (options?.search) {
+      queryBuilder.andWhere(
+        '(task.title ILIKE :search OR task.description ILIKE :search)',
+        { search: `%${options.search}%` }
+      );
+    }
+
+    // Order by created date for consistent streaming
+    queryBuilder.orderBy('task.createdAt', 'DESC');
+
+    // Stream results
+    const stream = await queryBuilder.stream();
+
+    try {
+      for await (const task of stream) {
+        yield task as Task;
+      }
+    } finally {
+      stream.destroy();
+    }
+  }
+
+  /**
+   * Process tasks in batches using cursor-based pagination
+   * More efficient than offset-based pagination for large datasets
+   */
+  async processBatchWithCursor(
+    batchSize: number = 100,
+    processor: (tasks: Task[]) => Promise<void>,
+    options?: FindTasksOptions
+  ): Promise<{ totalProcessed: number }> {
+    let cursor: string | null = null;
+    let hasMore = true;
+    let totalProcessed = 0;
+
+    while (hasMore) {
+      const queryBuilder = this.tasksRepository
+        .createQueryBuilder('task')
+        .orderBy('task.id', 'ASC')
+        .take(batchSize);
+
+      // Apply filters
+      if (options?.status) {
+        queryBuilder.andWhere('task.status = :status', { status: options.status });
+      }
+
+      if (options?.priority) {
+        queryBuilder.andWhere('task.priority = :priority', { priority: options.priority });
+      }
+
+      if (options?.userId) {
+        queryBuilder.andWhere('task.userId = :userId', { userId: options.userId });
+      }
+
+      // Cursor pagination
+      if (cursor) {
+        queryBuilder.andWhere('task.id > :cursor', { cursor });
+      }
+
+      const tasks = await queryBuilder.getMany();
+
+      if (tasks.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Process batch
+      await processor(tasks);
+
+      totalProcessed += tasks.length;
+      cursor = tasks[tasks.length - 1].id;
+
+      this.logger.debug('Processed batch', { 
+        batchSize: tasks.length, 
+        totalProcessed,
+        cursor 
+      });
+
+      // Small delay to prevent overwhelming the system
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    this.logger.log('Batch processing complete', { totalProcessed });
+    return { totalProcessed };
+  }
 }

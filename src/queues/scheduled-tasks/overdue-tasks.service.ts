@@ -21,53 +21,43 @@ export class OverdueTasksService {
     this.logger.log('Starting overdue tasks check...');
 
     try {
-      const taskIds: string[] = [];
-      let page = 1;
-      let totalPages = 1;
+      let totalProcessed = 0;
 
-      // Fetch all overdue task IDs with pagination
-      do {
-        const result = await this.tasksService.findAll({
-          isOverdue: true,
-          idsOnly: true,
-          limit: 10000,
-          page,
-        });
+      // Use cursor-based pagination for efficient processing
+      const result = await this.tasksService.processBatchWithCursor(
+        this.BATCH_SIZE,
+        async (tasks) => {
+          // Extract task IDs from batch
+          const taskIds = tasks.map(t => t.id);
 
-        taskIds.push(...result.data.map((task) => task.id));
-        totalPages = result.meta.totalPages;
-        page++;
-      } while (page <= totalPages);
+          try {
+            // Queue batch for notification
+            await this.taskQueue.add(
+              'overdue-tasks-notification',
+              { taskIds },
+              {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 1000 },
+              }
+            );
 
-      if (taskIds.length === 0) {
-        this.logger.log('No overdue tasks found');
-        return;
-      }
-
-      this.logger.log(`Found ${taskIds.length} overdue tasks`);
-
-      let queuedCount = 0;
-      for (let i = 0; i < taskIds.length; i += this.BATCH_SIZE) {
-        const batch = taskIds.slice(i, i + this.BATCH_SIZE);
-
-        try {
-          await this.taskQueue.add(
-            'overdue-tasks-notification',
-            { taskIds: batch },
-          );
-
-          queuedCount += batch.length;
-          this.logger.debug(`Queued batch ${Math.floor(i / this.BATCH_SIZE) + 1}: ${batch.length} tasks`);
-        } catch (error) {
-          this.logger.error(
-            `Failed to queue batch ${Math.floor(i / this.BATCH_SIZE) + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          );
+            this.logger.debug(`Queued batch: ${taskIds.length} tasks`);
+          } catch (error) {
+            this.logger.error(
+              `Failed to queue batch: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+          }
+        },
+        {
+          isOverdue: true, // Filter for overdue tasks
         }
-      }
+      );
+
+      totalProcessed = result.totalProcessed;
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `Overdue tasks check completed: ${queuedCount}/${taskIds.length} tasks queued in ${duration}ms`,
+        `Overdue tasks check completed: ${totalProcessed} tasks processed in ${duration}ms`,
       );
     } catch (error) {
       const duration = Date.now() - startTime;
