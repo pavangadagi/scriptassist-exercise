@@ -12,6 +12,7 @@ import { PaginatedResponse } from '../../types/pagination.interface';
 import { FindTasksOptions } from './interfaces/find-tasks-options.interface';
 import { TaskStatistics } from './interfaces/task-statistics.interface';
 import { ObservableLogger } from '../../common/services/logger.service';
+import { CacheService } from '../../common/services/cache.service';
 
 @Injectable()
 export class TasksService {
@@ -22,6 +23,7 @@ export class TasksService {
     private tasksRepository: Repository<Task>,
     @InjectQueue('task-processing')
     private taskQueue: Queue,
+    private cacheService: CacheService,
   ) {
     this.logger.setContext('TasksService');
   }
@@ -166,6 +168,19 @@ export class TasksService {
   }
 
   async findOne(id: string, includeUser = false): Promise<Task> {
+    // Generate cache key
+    const cacheKey = `task:${id}:user:${includeUser}`;
+    
+    // Try cache first (cache-aside pattern)
+    const cached = await this.cacheService.get<Task>(cacheKey);
+    if (cached) {
+      this.logger.debug('Cache hit for task', { taskId: id, includeUser });
+      return cached;
+    }
+    
+    // Cache miss - fetch from database
+    this.logger.debug('Cache miss for task, querying database', { taskId: id, includeUser });
+    
     const queryBuilder = this.tasksRepository
       .createQueryBuilder('task')
       .where('task.id = :id', { id });
@@ -180,6 +195,10 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
+
+    // Store in cache with 5-minute TTL
+    await this.cacheService.set(cacheKey, task, 300);
+    this.logger.debug('Task stored in cache', { taskId: id, includeUser });
 
     return task;
   }
@@ -220,6 +239,10 @@ export class TasksService {
           });
         }
 
+        // Invalidate cache after successful update
+        const invalidated = await this.cacheService.invalidatePattern(`task:${id}:*`);
+        this.logger.debug('Cache invalidated after update', { taskId: id, keysInvalidated: invalidated });
+
         return updatedTask;
       });
 
@@ -252,6 +275,10 @@ export class TasksService {
   }
 
   async remove(id: string): Promise<void> {
+    // Invalidate cache before deletion
+    const invalidated = await this.cacheService.invalidatePattern(`task:${id}:*`);
+    this.logger.debug('Cache invalidated before deletion', { taskId: id, keysInvalidated: invalidated });
+
     const result = await this.tasksRepository.delete(id);
 
     if (result.affected === 0) {

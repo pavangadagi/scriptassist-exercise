@@ -43,6 +43,14 @@ import jwtConfig from './config/jwt.config';
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: configService.get('NODE_ENV') === 'development',
         logging: configService.get('NODE_ENV') === 'development',
+        
+        // Connection pooling configuration for high concurrency
+        extra: {
+          max: configService.get('DB_POOL_MAX', 20),              // Maximum pool size
+          min: configService.get('DB_POOL_MIN', 5),               // Minimum pool size
+          idleTimeoutMillis: configService.get('DB_POOL_IDLE_TIMEOUT', 30000),     // Close idle connections after 30s
+          connectionTimeoutMillis: configService.get('DB_POOL_CONNECTION_TIMEOUT', 2000), // Timeout acquiring connection
+        },
       }),
     }),
     
